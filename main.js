@@ -29,7 +29,7 @@ async function get_msgs(use_new_db) {
 }
 
 async function get_msg(t, use_new_db) {
-    for (let i = 0; i <= 30; i++) {
+    for (let i = 0; i <= 50; i++) {
         console.log(t, i);
         if (use_new_db) {
             await get_msg_new_db();
