@@ -18,3 +18,5 @@ once_cell = "1.21.1"
 tokio = { version = "1.44.1", default-features = false, features = ["rt", "sync", "macros", "time"] }
 tokio_with_wasm = { version = "0.8.2", features = ["rt", "sync", "macros", "time"] }
 js-sys = "0.3.77"
+arc-swap = "1.7.1"
+uuid = "1.16.0"

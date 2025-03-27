@@ -134,6 +134,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3396,6 +3402,7 @@ dependencies = [
 name = "surrealdb-rust-wasm-repro"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "console_log",
  "getrandom 0.3.2",
  "js-sys",
@@ -3405,6 +3412,7 @@ dependencies = [
  "surrealdb",
  "tokio",
  "tokio_with_wasm",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]

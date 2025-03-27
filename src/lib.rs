@@ -2,10 +2,16 @@ use js_sys::Promise;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
     sync::{Arc, OnceLock},
 };
-use surrealdb::{engine::any::Any, Surreal};
+use surrealdb::{
+    engine::any::Any,
+    rpc::{Data, Method},
+    sql::{Array, Object, Value},
+    Surreal,
+};
 use tokio::sync::{
     mpsc::{self, Sender},
     oneshot::{self},
@@ -20,10 +26,13 @@ use tokio_with_wasm as tokio;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
+mod ds;
+
 const POOL_SIZE: usize = 10;
 
 pub struct SurrealPool {
-    conns: VecDeque<Surreal<Any>>,
+    // conns: VecDeque<Surreal<Any>>,
+    conns: VecDeque<ds::SurrealWasmEngine>,
 }
 
 impl SurrealPool {
@@ -36,12 +45,21 @@ impl SurrealPool {
         Self { conns }
     }
 
-    pub fn take(&mut self) -> Surreal<Any> {
+    // pub fn take(&mut self) -> Surreal<Any> {
+    //     let conn = self.conns.pop_front().expect("DB pool exhausted");
+    //     conn
+    // }
+
+    // pub fn give_back(&mut self, conn: Surreal<Any>) {
+    //     self.conns.push_back(conn);
+    // }
+
+    pub fn take(&mut self) -> ds::SurrealWasmEngine {
         let conn = self.conns.pop_front().expect("DB pool exhausted");
         conn
     }
 
-    pub fn give_back(&mut self, conn: Surreal<Any>) {
+    pub fn give_back(&mut self, conn: ds::SurrealWasmEngine) {
         self.conns.push_back(conn);
     }
 }
@@ -58,10 +76,10 @@ pub async fn flush_js_microtasks() {
 pub enum DbTask {
     CreateMessage {
         msg: Message,
-        respond_to: oneshot::Sender<Result<Option<Message>, surrealdb::Error>>,
+        respond_to: oneshot::Sender<Result<Option<Data>, surrealdb::Error>>,
     },
     GetMessages {
-        respond_to: oneshot::Sender<Result<Vec<Message>, surrealdb::Error>>,
+        respond_to: oneshot::Sender<Result<Vec<Data>, surrealdb::Error>>,
     },
 }
 
@@ -71,24 +89,48 @@ pub fn start_db_worker(mut pool: SurrealPool) -> mpsc::Sender<DbTask> {
 
     tokio::task::spawn(async move {
         while let Some(task) = rx.recv().await {
-            flush_js_microtasks().await;
+            // flush_js_microtasks().await;
             let db = pool.take();
+
             // log::info!("flush processing...");
+            // match task {
+            //     DbTask::CreateMessage { msg, respond_to } => {
+            //         let result: Result<Option<Message>, surrealdb::Error> =
+            //             db.create("msg").content(msg).await;
+            //         // flush_js_microtasks().await;
+            //         let _ = respond_to.send(result);
+            //     }
+            //     DbTask::GetMessages { respond_to } => {
+            //         let result = db.select("msg").await;
+            //         // flush_js_microtasks().await;
+            //         let _ = respond_to.send(result);
+            //     }
+            // }
             match task {
                 DbTask::CreateMessage { msg, respond_to } => {
-                    let result: Result<Option<Message>, surrealdb::Error> =
-                        db.create("msg").content(msg).await;
+                    let mut obj = HashMap::new();
+                    obj.insert("msg", Value::from("this is a msg"));
+                    let result = db
+                        .execute(
+                            Method::Create,
+                            Array::from(vec![Value::from("msg"), Value::Object(Object::from(obj))]),
+                        )
+                        .await
+                        .unwrap();
                     // flush_js_microtasks().await;
-                    let _ = respond_to.send(result);
+                    let _ = respond_to.send(Ok(Some(result)));
                 }
                 DbTask::GetMessages { respond_to } => {
-                    let result = db.select("msg").await;
+                    let result = db
+                        .execute(Method::Select, Array::from(vec!["msg"]))
+                        .await
+                        .unwrap();
                     // flush_js_microtasks().await;
-                    let _ = respond_to.send(result);
+                    let _ = respond_to.send(Ok(vec![result]));
                 }
             }
             pool.give_back(db);
-            flush_js_microtasks().await;
+            // flush_js_microtasks().await;
             // log::info!("processed...");
         }
     });
@@ -98,28 +140,50 @@ pub fn start_db_worker(mut pool: SurrealPool) -> mpsc::Sender<DbTask> {
 
 pub static GLOBAL_DB_TX: OnceLock<Sender<DbTask>> = OnceLock::new();
 
-// thread_local! {
-//     static SURREAL_DB: RefCell<Option<&'static Surreal<Any>>> = const { RefCell::new(None) };
-// }
+thread_local! {
+    // static SURREAL_DB: RefCell<Option<&'static Surreal<Any>>> = const { RefCell::new(None) };
+    static DB: RefCell<Option<&'static ds::SurrealWasmEngine>> = const { RefCell::new(None) };
+}
 
 pub static GLOBAL_DB_ACCESS_GUARD: Lazy<Arc<Semaphore>> = Lazy::new(|| Arc::new(Semaphore::new(1)));
 
 // async fn get_db_ref() -> &'static Surreal<Any> {
-//     return SURREAL_DB.with(|db| db.borrow().expect("DB is not initialized"));
+async fn get_db_ref() -> &'static ds::SurrealWasmEngine {
+    return DB.with(|db| db.borrow().expect("DB is not initialized"));
+    // return SURREAL_DB.with(|db| db.borrow().expect("DB is not initialized"));
+}
+
+// async fn get_new_db() -> Surreal<Any> {
+//     let db = surrealdb::engine::any::connect("indxdb://data")
+//         .await
+//         .unwrap();
+//     db.use_ns("").use_db("data").await.unwrap();
+//     return db;
 // }
 
-async fn get_new_db() -> Surreal<Any> {
-    let db = surrealdb::engine::any::connect("indxdb://data")
-        .await
-        .unwrap();
-    db.use_ns("").use_db("data").await.unwrap();
-    return db;
+async fn get_new_db() -> ds::SurrealWasmEngine {
+    let engine = ds::SurrealWasmEngine::new().await;
+    engine
 }
 
 #[wasm_bindgen]
 pub async fn get_msg_new_db() {
-    // let db = get_new_db().await;
-    // get_msg(&db).await;
+    let engine = ds::SurrealWasmEngine::new().await; // works
+                                                     // let engine = get_db_ref().await; // doesn't work at all
+    let mut obj = HashMap::new();
+    obj.insert("msg", Value::from("this is a msg"));
+    engine
+        .execute(
+            Method::Create,
+            Array::from(vec![Value::from("msg"), Value::Object(Object::from(obj))]),
+        )
+        .await
+        .unwrap();
+    let _data = engine
+        .execute(Method::Select, Array::from(vec!["msg"]))
+        .await
+        .unwrap();
+    // log::info!("{:?}", data);
 }
 
 async fn get_msg() {
@@ -174,6 +238,7 @@ async fn add_msg() {
 
 #[wasm_bindgen]
 pub async fn get_msg_db_ref() {
+    // works
     // let db = get_db_ref().await;
     get_msg().await;
     add_msg().await;
@@ -191,6 +256,14 @@ pub async fn initialize() {
     //         *db_ref = Some(leaked);
     //     }
     // });
+    let db = ds::SurrealWasmEngine::new().await;
+    DB.with(|surreal_db| {
+        let mut db_ref = surreal_db.borrow_mut();
+        if db_ref.is_none() {
+            let leaked: &'static ds::SurrealWasmEngine = Box::leak(Box::new(db));
+            *db_ref = Some(leaked);
+        }
+    });
     let pool = SurrealPool::new().await;
     // let tx = start_db_worker(get_new_db().await);
     let tx = start_db_worker(pool);
