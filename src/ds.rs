@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use serde::de::DeserializeOwned;
 use surrealdb::{
     dbs::Session,
     kvs::Datastore,
     rpc::{Data, Method, RpcContext, RpcError, RpcProtocolV1, RpcProtocolV2},
-    sql::{Array, Value},
+    sql::{Array, Id, Thing, Value},
+    RecordId,
 };
 use tokio::sync::Semaphore;
 #[cfg(all(
@@ -48,6 +50,39 @@ impl SurrealWasmEngine {
             .unwrap();
 
         SurrealWasmEngine(inner)
+    }
+
+    pub async fn select<T>(&self, table: &str, id: Option<String>) -> Result<T, String>
+    where
+        T: DeserializeOwned,
+    {
+        let params = if let Some(id_set) = id {
+            let thing = Thing::from((table, Id::from(id_set.to_owned())));
+            Array::from(vec![Value::from(thing)])
+        } else {
+            Array::from(vec![table.to_owned()])
+        };
+        let data = self
+            .execute(Method::Select, Array::from(params))
+            .await
+            .map_err(|e| e.to_string())?;
+        match data {
+            Data::Other(val) => {
+                // log::info!("{val:?}");
+                let ret: T = self.from_surreal(val)?;
+                Ok(ret)
+            }
+            _ => Err("no value".to_string()),
+        }
+    }
+
+    fn from_surreal<T>(&self, val: Value) -> Result<T, String>
+    where
+        T: DeserializeOwned,
+    {
+        let json = val.into_json();
+        let result: T = serde_json::from_value(json).map_err(|e| e.to_string())?;
+        Ok(result)
     }
 }
 

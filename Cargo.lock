@@ -3409,6 +3409,7 @@ dependencies = [
  "log",
  "once_cell",
  "serde",
+ "serde_json",
  "surrealdb",
  "tokio",
  "tokio_with_wasm",

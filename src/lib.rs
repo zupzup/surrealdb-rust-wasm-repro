@@ -1,6 +1,6 @@
 use js_sys::Promise;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque},
@@ -64,7 +64,7 @@ impl SurrealPool {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Message {
     pub msg: String,
 }
@@ -153,13 +153,13 @@ async fn get_db_ref() -> &'static ds::SurrealWasmEngine {
     // return SURREAL_DB.with(|db| db.borrow().expect("DB is not initialized"));
 }
 
-// async fn get_new_db() -> Surreal<Any> {
-//     let db = surrealdb::engine::any::connect("indxdb://data")
-//         .await
-//         .unwrap();
-//     db.use_ns("").use_db("data").await.unwrap();
-//     return db;
-// }
+async fn get_new_db_old() -> Surreal<Any> {
+    let db = surrealdb::engine::any::connect("indxdb://data")
+        .await
+        .unwrap();
+    db.use_ns("").use_db("data").await.unwrap();
+    return db;
+}
 
 async fn get_new_db() -> ds::SurrealWasmEngine {
     let engine = ds::SurrealWasmEngine::new().await;
@@ -179,10 +179,23 @@ pub async fn get_msg_new_db() {
         )
         .await
         .unwrap();
-    let _data = engine
-        .execute(Method::Select, Array::from(vec!["msg"]))
+    // let data = engine
+    //     .execute(Method::Select, Array::from(vec!["msg"]))
+    //     .await
+    //     .unwrap();
+    if let Ok(v) = engine.select::<Vec<Message>>("msg", None).await {
+        // log::info!("returned a value! {v:?}");
+        // log::info!("ret");
+    }
+    // 00fg7fm50o9z1pxkfq1k
+    if let Ok(single) = engine
+        .select::<Option<Message>>("msg", Some("00fg7fm50o9z1pxkfq1k".into()))
         .await
-        .unwrap();
+    {
+        if let Some(msg) = single {
+            // log::info!("returned a value! {msg:?}");
+        }
+    }
     // log::info!("{:?}", data);
 }
 
@@ -190,17 +203,17 @@ async fn get_msg() {
     // log::info!("getting lock get...");
     // log::info!("get...");
     // let _permit = GLOBAL_DB_ACCESS_GUARD.acquire().await.unwrap();
-    let tx = GLOBAL_DB_TX
-        .get()
-        .expect("DB queue not initialized")
-        .clone();
+    // let tx = GLOBAL_DB_TX
+    //     .get()
+    //     .expect("DB queue not initialized")
+    //     .clone();
 
-    let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-    tx.send(DbTask::GetMessages { respond_to: res_tx })
-        .await
-        .unwrap();
-    let _messages = res_rx.await.unwrap().unwrap();
-    // let _msgs: Vec<Message> = db.select("msg").await.unwrap();
+    // let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+    // tx.send(DbTask::GetMessages { respond_to: res_tx })
+    //     .await
+    //     .unwrap();
+    // let _messages = res_rx.await.unwrap().unwrap();
+    let _msgs: Vec<Message> = get_new_db_old().await.select("msg").await.unwrap();
     // log::info!("releasing lock get...");
     // log::info!("get done...");
 }
@@ -209,29 +222,30 @@ async fn add_msg() {
     // log::info!("add...");
     // log::info!("getting lock add...");
     // let _permit = GLOBAL_DB_ACCESS_GUARD.acquire().await.unwrap();
-    let tx = GLOBAL_DB_TX
-        .get()
-        .expect("DB queue not initialized")
-        .clone();
+    // let tx = GLOBAL_DB_TX
+    //     .get()
+    //     .expect("DB queue not initialized")
+    //     .clone();
 
-    let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-    tx.send(DbTask::CreateMessage {
-        msg: Message {
-            msg: "this is a msg".to_owned(),
-        },
-        respond_to: res_tx,
-    })
-    .await
-    .unwrap();
-    let _msg = res_rx.await.unwrap().unwrap();
-    // let _messages = res_rx.await.unwrap().unwrap();
-    // let _: Option<Message> = db
-    //     .create("msg")
-    //     .content(Message {
+    // let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+    // tx.send(DbTask::CreateMessage {
+    //     msg: Message {
     //         msg: "this is a msg".to_owned(),
-    //     })
-    //     .await
-    //     .unwrap();
+    //     },
+    //     respond_to: res_tx,
+    // })
+    // .await
+    // .unwrap();
+    // let _msg = res_rx.await.unwrap().unwrap();
+    // let _messages = res_rx.await.unwrap().unwrap();
+    let _: Option<Message> = get_new_db_old()
+        .await
+        .create("msg")
+        .content(Message {
+            msg: "this is a msg".to_owned(),
+        })
+        .await
+        .unwrap();
     // log::info!("releasing lock add...");
     // log::info!("add done...");
 }
