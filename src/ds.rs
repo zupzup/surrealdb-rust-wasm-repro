@@ -58,7 +58,8 @@ impl SurrealWasmEngine {
     {
         let params = if let Some(id_set) = id {
             let thing = Thing::from((table, Id::from(id_set.to_owned())));
-            Array::from(vec![Value::from(thing)])
+            Array::from(Value::from(thing))
+            // Array::from(vec![Value::from(thing)])
         } else {
             Array::from(vec![table.to_owned()])
         };
